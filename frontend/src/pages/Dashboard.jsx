@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  Area, AreaChart,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  CartesianGrid, Area, AreaChart,
 } from "recharts";
 import { apiFetch } from "../api";
+import AnnouncementsSection from "../components/AnnouncementsSection";
+import EventsSection from "../components/EventsSection";
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
@@ -15,41 +17,43 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, []);
 
-  if (!data) return <div className="loading">Chargement...</div>;
+  if (!data) return <div className="loading">⏳ Chargement...</div>;
 
   return (
     <div>
-      <h1>Tableau de bord</h1>
+      <h1>📊 Tableau de bord</h1>
 
+      {/* ===== STATS CARDS ===== */}
       <div className="stats-grid">
         <div className="stat-card">
           <h2>{data.total_students}</h2>
-          <p>Total élèves</p>
+          <p>👥 Élèves</p>
         </div>
         <div className="stat-card green">
           <h2>{data.present_today}</h2>
-          <p>Présents</p>
+          <p>✅ Présents</p>
         </div>
         <div className="stat-card red">
           <h2>{data.absent_today}</h2>
-          <p>Absents</p>
+          <p>❌ Absents</p>
         </div>
         <div className="stat-card orange">
           <h2>{data.late_today}</h2>
-          <p>Retards</p>
+          <p>⏰ Retards</p>
         </div>
         <div className="stat-card blue">
           <h2>{data.taux_presence}%</h2>
-          <p>Taux présence</p>
+          <p>📈 Taux présence</p>
         </div>
         <div className="stat-card">
           <h2>{data.total_classes}</h2>
-          <p>Classes</p>
+          <p>🏫 Classes</p>
         </div>
       </div>
 
+      {/* ===== GRAPHIQUE ÉVOLUTION ===== */}
       <div className="chart-card">
-        <h3>Évolution de la présence (7 jours)</h3>
+        <h3>📈 Évolution de la présence (7 jours)</h3>
         <ResponsiveContainer width="100%" height={300}>
           <AreaChart data={data.evolution}>
             <defs>
@@ -73,11 +77,19 @@ export default function Dashboard() {
                 boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
               }}
             />
-            <Area type="monotone" dataKey="present" stroke="#10b981" strokeWidth={2} fill="url(#gp)" name="Présents" />
-            <Area type="monotone" dataKey="absent" stroke="#ef4444" strokeWidth={2} fill="url(#ga)" name="Absents" />
+            <Area type="monotone" dataKey="present" stroke="#10b981" strokeWidth={2}
+              fill="url(#gp)" name="Présents" />
+            <Area type="monotone" dataKey="absent" stroke="#ef4444" strokeWidth={2}
+              fill="url(#ga)" name="Absents" />
           </AreaChart>
         </ResponsiveContainer>
       </div>
+
+      {/* ===== ACTUALITÉS & ANNONCES ===== */}
+      <AnnouncementsSection limit={3} showAll={true} />
+
+      {/* ===== ÉVÉNEMENTS À VENIR ===== */}
+      <EventsSection limit={4} showAll={true} />
     </div>
   );
 }

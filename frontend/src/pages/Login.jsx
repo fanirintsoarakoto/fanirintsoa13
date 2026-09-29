@@ -1,13 +1,17 @@
 import { useState } from "react";
 import { apiFetch } from "../api";
+
 export default function Login({ onAuth }) {
   const [mode, setMode] = useState("login");
-  const [form, setForm] = useState({ username: "", email: "", password: "" });
+  const [form, setForm] = useState({ username: "", email: "", password: "", prenom: "", telephone: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPwd, setShowPwd] = useState(false);
+  const [remember, setRemember] = useState(localStorage.getItem("remember") === "1");
 
   async function submit(e) {
-    e.preventDefault(); setError(""); setLoading(true);
+    e.preventDefault();
+    setError(""); setLoading(true);
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/register";
       const body = mode === "login"
@@ -18,32 +22,84 @@ export default function Login({ onAuth }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      onAuth(data.token, data.user);
+      localStorage.setItem("remember", remember ? "1" : "0");
+      if (remember) localStorage.setItem("last_user", form.username);
+      onAuth(data.token, data.user, data.permissions);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }
 
   return (
-    <div className="login-page">
-      <form className="login-card" onSubmit={submit}>
-        <h1>🎓 Fanirintsoa</h1>
-        <p className="login-sub">Gestion des élèves</p>
-        {error && <div className="login-error">{error}</div>}
-        <input placeholder="Anarana" value={form.username}
-          onChange={(e) => setForm({ ...form, username: e.target.value })} required autoFocus />
+    <div className="login-page-pro">
+      <div className="login-bg-decoration"></div>
+      <form className="login-card-pro" onSubmit={submit}>
+        <div className="login-logo-pro">
+          <div className="login-logo-circle">🎓</div>
+        </div>
+        <h1>FANIRINTSOA</h1>
+        <p className="login-sub">Système de gestion scolaire</p>
+
+        {error && <div className="login-error-pro"><span>⚠️</span> {error}</div>}
+
+        <div className="login-field">
+          <label>Anarana na Email</label>
+          <input value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            placeholder="admin na admin@exemple.mg" required autoFocus />
+        </div>
+
         {mode === "register" && (
-          <input type="email" placeholder="Email" value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+          <>
+            <div className="login-field">
+              <label>Email</label>
+              <input type="email" value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="email@exemple.mg" required />
+            </div>
+            <div className="login-field">
+              <label>Fanampiny</label>
+              <input value={form.prenom}
+                onChange={(e) => setForm({ ...form, prenom: e.target.value })}
+                placeholder="Prénom" />
+            </div>
+            <div className="login-field">
+              <label>Téléphone</label>
+              <input value={form.telephone}
+                onChange={(e) => setForm({ ...form, telephone: e.target.value })}
+                placeholder="034 00 000 00" />
+            </div>
+          </>
         )}
-        <input type="password" placeholder="Teny miafina" value={form.password}
-          onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={4} />
-        <button type="submit" disabled={loading}>
-          {loading ? "..." : (mode === "login" ? "Hiditra" : "Hisoratra")}
+
+        <div className="login-field">
+          <label>Teny miafina</label>
+          <div className="password-wrap">
+            <input type={showPwd ? "text" : "password"}
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              placeholder="••••••••" required minLength={4} />
+            <button type="button" className="toggle-pwd" onClick={() => setShowPwd(!showPwd)}>
+              {showPwd ? "🙈" : "👁️"}
+            </button>
+          </div>
+        </div>
+
+        <div className="login-options">
+          <label className="remember-check">
+            <input type="checkbox" checked={remember}
+              onChange={(e) => setRemember(e.target.checked)} />
+            <span>Tsarovy aho</span>
+          </label>
+        </div>
+
+        <button type="submit" className="btn-login-pro" disabled={loading}>
+          {loading ? "⏳..." : (mode === "login" ? "🔐 Hiditra" : "✍️ Hisoratra")}
         </button>
+
         <p className="login-switch">
           {mode === "login"
-            ? <>Tsy manana compte? <a onClick={() => setMode("register")}>Hisoratra</a></>
-            : <>Efa manana compte? <a onClick={() => setMode("login")}>Hiditra</a></>}
+            ? <>Tsy manana compte? <a onClick={() => { setMode("register"); setError(""); }}>Hisoratra</a></>
+            : <>Efa manana? <a onClick={() => { setMode("login"); setError(""); }}>Hiditra</a></>}
         </p>
       </form>
     </div>
