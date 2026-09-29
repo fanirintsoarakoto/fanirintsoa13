@@ -5,13 +5,14 @@ export default function Login({ onAuth }) {
   const [mode, setMode] = useState("login");
   const [form, setForm] = useState({ username: "", email: "", password: "", prenom: "", telephone: "" });
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [remember, setRemember] = useState(localStorage.getItem("remember") === "1");
 
   async function submit(e) {
     e.preventDefault();
-    setError(""); setLoading(true);
+    setError(""); setInfo(""); setLoading(true);
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/register";
       const body = mode === "login"
@@ -22,6 +23,12 @@ export default function Login({ onAuth }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      if (mode === "register") {
+        setInfo(data.message || "Demande envoyée. Votre compte est en attente de validation par l'administrateur.");
+        setMode("login");
+        setForm({ username: "", email: "", password: "", prenom: "", telephone: "" });
+        return;
+      }
       localStorage.setItem("remember", remember ? "1" : "0");
       if (remember) localStorage.setItem("last_user", form.username);
       onAuth(data.token, data.user, data.permissions);
@@ -40,12 +47,17 @@ export default function Login({ onAuth }) {
         <p className="login-sub">Système de gestion scolaire</p>
 
         {error && <div className="login-error-pro"><span>⚠️</span> {error}</div>}
+        {info && (
+          <div className="login-error-pro" style={{ background: "#dcfce7", color: "#166534", borderColor: "#86efac" }}>
+            <span>✅</span> {info}
+          </div>
+        )}
 
         <div className="login-field">
           <label>Anarana na Email</label>
           <input value={form.username}
             onChange={(e) => setForm({ ...form, username: e.target.value })}
-            placeholder="admin na admin@exemple.mg" required autoFocus />
+            placeholder="anarana na email@exemple.mg" required autoFocus />
         </div>
 
         {mode === "register" && (
@@ -77,29 +89,32 @@ export default function Login({ onAuth }) {
             <input type={showPwd ? "text" : "password"}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="••••••••" required minLength={4} />
+              placeholder="••••••••" required minLength={mode === "register" ? 8 : 1} />
             <button type="button" className="toggle-pwd" onClick={() => setShowPwd(!showPwd)}>
               {showPwd ? "🙈" : "👁️"}
             </button>
           </div>
+          {mode === "register" && <small>8 litera farafahakeliny</small>}
         </div>
 
-        <div className="login-options">
-          <label className="remember-check">
-            <input type="checkbox" checked={remember}
-              onChange={(e) => setRemember(e.target.checked)} />
-            <span>Tsarovy aho</span>
-          </label>
-        </div>
+        {mode === "login" && (
+          <div className="login-options">
+            <label className="remember-check">
+              <input type="checkbox" checked={remember}
+                onChange={(e) => setRemember(e.target.checked)} />
+              <span>Tsarovy aho</span>
+            </label>
+          </div>
+        )}
 
         <button type="submit" className="btn-login-pro" disabled={loading}>
-          {loading ? "⏳..." : (mode === "login" ? "🔐 Hiditra" : "✍️ Hisoratra")}
+          {loading ? "⏳..." : (mode === "login" ? "🔐 Hiditra" : "✍️ Handefa demande")}
         </button>
 
         <p className="login-switch">
           {mode === "login"
-            ? <>Tsy manana compte? <a onClick={() => { setMode("register"); setError(""); }}>Hisoratra</a></>
-            : <>Efa manana? <a onClick={() => { setMode("login"); setError(""); }}>Hiditra</a></>}
+            ? <>Tsy manana compte? <a onClick={() => { setMode("register"); setError(""); setInfo(""); }}>Hisoratra</a></>
+            : <>Efa manana? <a onClick={() => { setMode("login"); setError(""); setInfo(""); }}>Hiditra</a></>}
         </p>
       </form>
     </div>
