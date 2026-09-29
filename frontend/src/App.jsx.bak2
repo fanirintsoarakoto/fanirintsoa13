@@ -50,7 +50,6 @@ function Guard({ perm, user, children }) {
 
 import DemandesInscription from "./pages/DemandesInscription";
 
-import PendingBanner from "./components/PendingBanner";
 export default function App() {
   const [user, setUser] = useState(() => {
     const u = localStorage.getItem("user");
@@ -99,7 +98,6 @@ export default function App() {
     <div className="app-layout">
       <Sidebar user={user} onLogout={handleLogout} />
       <main className="main-content">
-        <PendingBanner user={user} />
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/scanner" element={<Scanner toast={showToast} />} />
