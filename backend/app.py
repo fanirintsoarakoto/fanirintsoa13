@@ -378,26 +378,21 @@ def home():
 # ============================================================
 @app.route("/auth/register", methods=["POST"])
 def register():
-    d = request.json
+    d = request.json or {}
     u = (d.get("username") or "").strip()
     e = (d.get("email") or "").strip()
     p = d.get("password") or ""
     if not u or not e or not p:
         return jsonify({"error": "Mila anarana, email, teny miafina"}), 400
+    if len(p) < 8:
+        return jsonify({"error": "Teny miafina: 8 litera farafahakeliny"}), 400
     c = connect()
-    if c.execute("SELECT id FROM users WHERE username=?", (u,)).fetchone():
+    if c.execute("SELECT id FROM users WHERE username=? OR email=?", (u, e)).fetchone():
         c.close(); return jsonify({"error": "Efa misy"}), 400
-    cur = c.execute("INSERT INTO users (username,email,password_hash,role,active,prenom,telephone) VALUES (?,?,?,'admin',1,?,?)",
-                    (u, e, hash_password(p), d.get("prenom",""), d.get("telephone","")))
-    uid = cur.lastrowid
-    token = secrets.token_urlsafe(32)
-    c.execute("INSERT INTO sessions_auth (token,user_id) VALUES (?,?)", (token, uid))
+    c.execute("INSERT INTO users (username,email,password_hash,role,active,status,prenom,telephone) VALUES (?,?,?,'user',0,'PENDING',?,?)",
+              (u, e, hash_password(p), d.get("prenom", ""), d.get("telephone", "")))
     c.commit(); c.close()
-    log_action(uid, "register")
-    perms = get_user_permissions(uid)
-    return jsonify({"token": token,
-                    "user": {"id": uid, "username": u, "email": e, "role": "admin"},
-                    "permissions": perms}), 201
+    return jsonify({"message": "Demande envoyée. Votre compte est en attente de validation par l'administrateur."}), 202
 
 @app.route("/auth/login", methods=["POST"])
 def login():
@@ -424,6 +419,13 @@ def login():
         c.close()
         log_action(user["id"] if user else None, "login", f"u={u}", resultat="echec")
         return jsonify({"error": "Anarana na teny miafina diso"}), 401
+    st = user["status"] or "ACTIVE"
+    if st == "PENDING":
+        c.close(); return jsonify({"error": "Votre compte est en attente de validation par l'administrateur."}), 403
+    if st == "REJECTED":
+        c.close(); return jsonify({"error": "Votre demande de création de compte a été refusée."}), 403
+    if st == "SUSPENDED":
+        c.close(); return jsonify({"error": "Votre compte est temporairement désactivé."}), 403
     if not user["active"]:
         c.close(); return jsonify({"error": "Tsy mavitrika"}), 403
     c.execute("UPDATE users SET login_attempts=0, locked_until=NULL, last_login=CURRENT_TIMESTAMP WHERE id=?",
@@ -2106,6 +2108,78 @@ def scan_active():
                 active.append(dict(r))
         except: continue
     return jsonify({"date": now.strftime("%Y-%m-%d"), "heure": now_time, "cours_actifs": active})
+
+# ===== VALIDATION DES INSCRIPTIONS =====
+def migrate_approval():
+    c = connect()
+    for sql in [
+        "ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'ACTIVE'",
+        "ALTER TABLE users ADD COLUMN approved_at TEXT",
+        "ALTER TABLE users ADD COLUMN approved_by INTEGER",
+    ]:
+        try: c.execute(sql)
+        except sqlite3.OperationalError: pass
+    c.execute("UPDATE users SET status='ACTIVE' WHERE status IS NULL")
+    c.execute("CREATE TABLE IF NOT EXISTS validations_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, action TEXT, admin_id INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+    c.commit(); c.close()
+
+migrate_approval()
+
+def _admin_only():
+    uid, err = require_auth(request)
+    if err: return None, err
+    c = connect()
+    u = c.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()
+    c.close()
+    if not u or u["role"] != "admin":
+        return None, (jsonify({"error": "Admin ihany"}), 403)
+    return uid, None
+
+@app.route("/admin/demandes")
+def admin_demandes():
+    uid, err = _admin_only()
+    if err: return err
+    c = connect()
+    rows = c.execute("SELECT id,username,email,prenom,telephone,status,created_at,approved_at FROM users WHERE status IN ('PENDING','REJECTED') ORDER BY created_at DESC").fetchall()
+    c.close()
+    return jsonify([dict(r) for r in rows])
+
+def _decide(admin_id, user_id, status, action, role=None):
+    c = connect()
+    t = c.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+    if not t:
+        c.close(); return jsonify({"error": "Tsy hita"}), 404
+    if status == "ACTIVE":
+        c.execute("UPDATE users SET status='ACTIVE', active=1, role=?, approved_at=CURRENT_TIMESTAMP, approved_by=? WHERE id=?",
+                  (role or "user", admin_id, user_id))
+    else:
+        c.execute("UPDATE users SET status=?, active=0, approved_at=CURRENT_TIMESTAMP, approved_by=? WHERE id=?",
+                  (status, admin_id, user_id))
+    c.execute("INSERT INTO validations_log (user_id, action, admin_id) VALUES (?,?,?)", (user_id, action, admin_id))
+    c.commit(); c.close()
+    return jsonify({"ok": True, "status": status})
+
+@app.route("/admin/demandes/<int:user_id>/approve", methods=["POST"])
+def admin_approve(user_id):
+    uid, err = _admin_only()
+    if err: return err
+    d = request.json or {}
+    return _decide(uid, user_id, "ACTIVE", "APPROVE", d.get("role"))
+
+@app.route("/admin/demandes/<int:user_id>/reject", methods=["POST"])
+def admin_reject(user_id):
+    uid, err = _admin_only()
+    if err: return err
+    return _decide(uid, user_id, "REJECTED", "REJECT")
+
+@app.route("/admin/validations")
+def admin_validations():
+    uid, err = _admin_only()
+    if err: return err
+    c = connect()
+    rows = c.execute("SELECT v.id, v.action, v.created_at, u.username AS utilisateur, a.username AS admin FROM validations_log v LEFT JOIN users u ON u.id=v.user_id LEFT JOIN users a ON a.id=v.admin_id ORDER BY v.id DESC LIMIT 200").fetchall()
+    c.close()
+    return jsonify([dict(r) for r in rows])
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
