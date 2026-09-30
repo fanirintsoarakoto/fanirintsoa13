@@ -2199,6 +2199,15 @@ def admin_validations():
     c.close()
     return jsonify([dict(r) for r in rows])
 
+@app.route("/messages/contacts")
+def messages_contacts():
+    uid, err = require_auth(request)
+    if err: return err
+    c = connect()
+    rows = c.execute("SELECT id, username, prenom, role, photo FROM users WHERE id != ? AND active=1 AND (status IS NULL OR status='ACTIVE') ORDER BY username", (uid,)).fetchall()
+    c.close()
+    return jsonify([dict(r) for r in rows])
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)

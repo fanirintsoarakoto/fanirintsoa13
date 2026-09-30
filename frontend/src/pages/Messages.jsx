@@ -1,225 +1,218 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 
+const parse = (d) => (d ? new Date(d.replace(" ", "T") + "Z") : null);
+const hm = (d) => {
+  const x = parse(d);
+  return x ? x.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
+};
+const short = (d) => {
+  const x = parse(d);
+  if (!x) return "";
+  return x.toDateString() === new Date().toDateString()
+    ? hm(d)
+    : x.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+};
+const dayLabel = (d) => {
+  const x = parse(d);
+  if (!x) return "";
+  if (x.toDateString() === new Date().toDateString()) return "Aujourd'hui";
+  return x.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+};
+const nm = (u) => u.prenom || u.username;
+const COLORS = ["#4f46e5", "#0891b2", "#16a34a", "#d97706", "#db2777", "#7c3aed"];
+
+function Avatar({ u, size = 46 }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%", flexShrink: 0,
+      background: COLORS[u.id % COLORS.length], color: "#fff",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontWeight: 700, fontSize: size / 2.3,
+    }}>
+      {nm(u).charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
 export default function Messages({ toast, user }) {
-  const [conversations, setConversations] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [convs, setConvs] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [active, setActive] = useState(null);
+  const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState("");
   const [showNew, setShowNew] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const endRef = useRef(null);
-  const currentUser = user || JSON.parse(localStorage.getItem("user") || "{}");
+  const [sending, setSending] = useState(false);
+  const [q, setQ] = useState("");
+  const bottom = useRef(null);
+  const me = user?.id;
 
-  async function loadConversations() {
-    try {
-      const data = await apiFetch("/messages/conversations");
-      setConversations(data);
-    } catch (e) {}
+  async function loadConvs() {
+    try { setConvs(await apiFetch("/messages/conversations")); } catch (e) {}
   }
-
-  async function loadUsers() {
-    try { setUsers(await apiFetch("/users/list")); } catch (e) {}
-  }
-
-  async function loadMessages(otherId) {
-    setLoading(true);
-    try {
-      const data = await apiFetch(`/messages/with/${otherId}`);
-      setMessages(data);
-      setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-    } catch (e) { setMessages([]); }
-    finally { setLoading(false); }
+  async function loadMsgs(id) {
+    try { setMsgs(await apiFetch(`/messages/with/${id}`)); } catch (e) {}
   }
 
   useEffect(() => {
-    loadConversations();
-    loadUsers();
-    const id = setInterval(() => {
-      loadConversations();
-      if (selected) loadMessages(selected.id);
-    }, 8000);
-    return () => clearInterval(id);
-  }, [selected]);
+    loadConvs();
+    apiFetch("/messages/contacts").then(setContacts).catch(() => {});
+    const t = setInterval(loadConvs, 8000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    loadMsgs(active.id).then(loadConvs);
+    const t = setInterval(() => loadMsgs(active.id), 5000);
+    return () => clearInterval(t);
+  }, [active?.id]);
+
+  useEffect(() => {
+    bottom.current && bottom.current.scrollIntoView({ behavior: "smooth" });
+  }, [msgs.length, active?.id]);
+
+  function open(u) {
+    setMsgs([]); setActive(u); setShowNew(false); setQ("");
+  }
 
   async function send(e) {
     e.preventDefault();
-    if (!text.trim() || !selected) return;
+    const contenu = text.trim();
+    if (!contenu || !active || sending) return;
+    setSending(true);
     try {
-      await apiFetch("/messages/send", {
+      const m = await apiFetch("/messages/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ receiver_id: selected.id, contenu: text }),
+        body: JSON.stringify({ receiver_id: active.id, contenu }),
       });
+      setMsgs((x) => [...x, m]);
       setText("");
-      loadMessages(selected.id);
-      loadConversations();
-    } catch (e) { toast(e.message, "error"); }
+      loadConvs();
+    } catch (err) {
+      toast && toast(err.message);
+    } finally {
+      setSending(false);
+    }
   }
 
-  function selectUser(u) {
-    setSelected(u);
-    setShowNew(false);
-    loadMessages(u.id);
+  const box = { height: "calc(100dvh - 80px)", display: "flex", flexDirection: "column", background: "#fff", borderRadius: 12, overflow: "hidden" };
+  const head = { padding: "12px 14px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", gap: 10 };
+
+  if (active) {
+    let lastDay = "";
+    return (
+      <div style={box}>
+        <div style={head}>
+          <button onClick={() => { setActive(null); loadConvs(); }}
+            style={{ border: 0, background: "none", fontSize: 22 }}>←</button>
+          <Avatar u={active} size={38} />
+          <div>
+            <strong>{nm(active)}</strong>
+            <div style={{ fontSize: 12, color: "#6b7280" }}>{active.role === "admin" ? "Administrateur" : "Utilisateur"}</div>
+          </div>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 6, background: "#f3f4f6" }}>
+          {msgs.length === 0 && <p style={{ textAlign: "center", color: "#6b7280" }}>Aucun message. Commencez la conversation 👋</p>}
+          {msgs.map((m) => {
+            const mine = m.sender_id === me;
+            const dl = dayLabel(m.created_at);
+            const sep = dl !== lastDay;
+            lastDay = dl;
+            return (
+              <div key={m.id} style={{ display: "flex", flexDirection: "column" }}>
+                {sep && <div style={{ textAlign: "center", fontSize: 12, color: "#6b7280", margin: "8px 0" }}>{dl}</div>}
+                <div style={{
+                  alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "80%",
+                  background: mine ? "#4f46e5" : "#fff", color: mine ? "#fff" : "#111",
+                  padding: "8px 12px", wordBreak: "break-word",
+                  borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                  boxShadow: "0 1px 2px rgba(0,0,0,.08)",
+                }}>
+                  <div>{m.contenu}</div>
+                  <div style={{ fontSize: 11, textAlign: "right", opacity: 0.75, marginTop: 2 }}>
+                    {hm(m.created_at)} {mine && (m.lu ? "✓✓" : "✓")}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={bottom} />
+        </div>
+        <form onSubmit={send} style={{ display: "flex", gap: 8, padding: 10, borderTop: "1px solid #e5e7eb" }}>
+          <input value={text} onChange={(e) => setText(e.target.value)}
+            placeholder="Écrire un message..."
+            style={{ flex: 1, padding: "10px 14px", borderRadius: 22, border: "1px solid #d1d5db", fontSize: 16 }} />
+          <button type="submit" disabled={sending || !text.trim()}
+            style={{ width: 44, height: 44, borderRadius: "50%", border: 0, background: "#4f46e5", color: "#fff", fontSize: 18, opacity: text.trim() ? 1 : 0.5 }}>➤</button>
+        </form>
+      </div>
+    );
   }
 
-  async function removeMessage(id) {
-    if (!confirm("Hamafa io hafatra io?")) return;
-    await apiFetch(`/messages/${id}`, { method: "DELETE" });
-    loadMessages(selected.id);
-  }
-
-  function formatTime(ts) {
-    if (!ts) return "";
-    const d = new Date(ts);
-    const now = new Date();
-    const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-    if (diffDays === 1) return "Hier";
-    if (diffDays < 7) return d.toLocaleDateString("fr-FR", { weekday: "short" });
-    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-  }
+  const list = showNew
+    ? contacts.filter((c) => (nm(c) + c.username).toLowerCase().includes(q.toLowerCase()))
+    : convs.filter((c) => (nm(c.user) + c.user.username).toLowerCase().includes(q.toLowerCase()));
+  const totalUnread = convs.reduce((a, c) => a + (c.unread || 0), 0);
 
   return (
-    <div>
-      <div className="page-header">
-        <h1>💬 Messages</h1>
-        <button className="btn btn-pdf-export" onClick={() => setShowNew(!showNew)}>
-          {showNew ? "← Conversations" : "+ Nouveau message"}
+    <div style={box}>
+      <div style={{ ...head, justifyContent: "space-between" }}>
+        <h2 style={{ margin: 0 }}>
+          {showNew ? "Nouveau message" : "Messages"}
+          {!showNew && totalUnread > 0 && (
+            <span style={{ marginLeft: 8, background: "#dc2626", color: "#fff", borderRadius: 12, padding: "2px 8px", fontSize: 13 }}>{totalUnread}</span>
+          )}
+        </h2>
+        <button onClick={() => { setShowNew(!showNew); setQ(""); }}
+          style={{ border: 0, background: "#4f46e5", color: "#fff", borderRadius: 20, padding: "8px 14px" }}>
+          {showNew ? "✕ Fermer" : "✏️ Nouveau"}
         </button>
       </div>
-
-      <div className="chat-wrapper">
-        {/* SIDEBAR */}
-        <div className={`chat-sidebar ${selected ? "mobile-hidden" : ""}`}>
-          {showNew ? (
-            <>
-              <div className="chat-sidebar-head">👥 Safidio destinataire</div>
-              <div className="chat-list">
-                {users.length === 0 ? (
-                  <p className="empty">Tsy misy utilisateur hafa.</p>
-                ) : (
-                  users.map(u => (
-                    <div key={u.id} className="chat-item"
-                      onClick={() => selectUser(u)}>
-                      <div className="chat-avatar">
-                        {u.photo ? <img src={u.photo} alt="" /> : (u.prenom?.[0] || u.username[0]).toUpperCase()}
-                      </div>
-                      <div className="chat-item-info">
-                        <strong>{u.prenom || u.username}</strong>
-                        <span>{u.role}</span>
-                      </div>
+      <div style={{ padding: "8px 12px" }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Rechercher..."
+          style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px", borderRadius: 22, border: "1px solid #d1d5db", fontSize: 16 }} />
+      </div>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {list.length === 0 && (
+          <p style={{ textAlign: "center", color: "#6b7280", padding: 20 }}>
+            {showNew ? "Aucun contact disponible." : "Aucune conversation. Appuyez sur « Nouveau »."}
+          </p>
+        )}
+        {showNew
+          ? list.map((c) => (
+              <div key={c.id} onClick={() => open(c)}
+                style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 14px", cursor: "pointer" }}>
+                <Avatar u={c} />
+                <div>
+                  <strong>{nm(c)}</strong>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>{c.role === "admin" ? "Administrateur" : "Utilisateur"}</div>
+                </div>
+              </div>
+            ))
+          : list.map((c) => {
+              const lm = c.last_message;
+              const unread = c.unread > 0;
+              return (
+                <div key={c.user.id} onClick={() => open(c.user)}
+                  style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 14px", cursor: "pointer", background: unread ? "#eef2ff" : "transparent" }}>
+                  <Avatar u={c.user} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <strong>{nm(c.user)}</strong>
+                      <small style={{ color: unread ? "#4f46e5" : "#6b7280" }}>{lm ? short(lm.created_at) : ""}</small>
                     </div>
-                  ))
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="chat-sidebar-head">📩 Conversations</div>
-              <div className="chat-list">
-                {conversations.length === 0 ? (
-                  <p className="empty">
-                    Tsy misy conversation.<br />
-                    Tsindrio "+ Nouveau message".
-                  </p>
-                ) : (
-                  conversations.map(c => {
-                    const u = c.user;
-                    const isActive = selected?.id === u.id;
-                    return (
-                      <div key={u.id}
-                        className={`chat-item ${isActive ? "active" : ""}`}
-                        onClick={() => selectUser(u)}>
-                        <div className="chat-avatar">
-                          {u.photo ? <img src={u.photo} alt="" /> : (u.prenom?.[0] || u.username[0]).toUpperCase()}
-                        </div>
-                        <div className="chat-item-info">
-                          <div className="chat-item-top">
-                            <strong>{u.prenom || u.username}</strong>
-                            <span className="chat-time">
-                              {formatTime(c.last_message?.created_at)}
-                            </span>
-                          </div>
-                          <div className="chat-item-bottom">
-                            <span className="chat-preview">
-                              {c.last_message?.contenu?.slice(0, 35)}
-                              {c.last_message?.contenu?.length > 35 ? "..." : ""}
-                            </span>
-                            {c.unread > 0 && (
-                              <span className="chat-badge">{c.unread}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* CHAT ZONE */}
-        <div className={`chat-main ${!selected ? "mobile-hidden" : ""}`}>
-          {!selected ? (
-            <div className="chat-empty">
-              <span>💬</span>
-              <p>Mifidiana conversation na mamorona vaovao</p>
-            </div>
-          ) : (
-            <>
-              <div className="chat-head">
-                <button className="btn btn-sm btn-secondary chat-back"
-                  onClick={() => setSelected(null)}>←</button>
-                <div className="chat-avatar small">
-                  {selected.photo ? <img src={selected.photo} alt="" /> : (selected.prenom?.[0] || selected.username[0]).toUpperCase()}
-                </div>
-                <div className="chat-head-info">
-                  <strong>{selected.prenom || selected.username}</strong>
-                  <span>{selected.role}</span>
-                </div>
-              </div>
-
-              <div className="chat-body">
-                {loading ? (
-                  <div className="loading">⏳...</div>
-                ) : messages.length === 0 ? (
-                  <div className="chat-empty">
-                    <p>Manomboha resaka amin'ny {selected.prenom || selected.username}</p>
+                    <div style={{ fontSize: 14, color: unread ? "#111" : "#6b7280", fontWeight: unread ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {lm ? (lm.sender_id === me ? "Vous : " : "") + lm.contenu : ""}
+                    </div>
                   </div>
-                ) : (
-                  messages.map(m => {
-                    const isMine = m.sender_id === currentUser.id;
-                    return (
-                      <div key={m.id}
-                        className={`chat-bubble-wrap ${isMine ? "mine" : "theirs"}`}>
-                        <div className={`chat-bubble ${isMine ? "mine" : "theirs"}`}>
-                          <p>{m.contenu}</p>
-                          <div className="chat-bubble-meta">
-                            <span>{formatTime(m.created_at)}</span>
-                            {isMine && m.lu === 1 && <span className="read-tick">✓✓</span>}
-                          </div>
-                          <button className="chat-delete"
-                            onClick={() => removeMessage(m.id)}>×</button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-                <div ref={endRef} />
-              </div>
-
-              <form className="chat-input-bar" onSubmit={send}>
-                <input value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder="Soraty ny hafatra..." />
-                <button type="submit" disabled={!text.trim()}>📤</button>
-              </form>
-            </>
-          )}
-        </div>
+                  {unread && (
+                    <span style={{ background: "#dc2626", color: "#fff", borderRadius: 12, minWidth: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, padding: "0 6px" }}>{c.unread}</span>
+                  )}
+                </div>
+              );
+            })}
       </div>
     </div>
   );
